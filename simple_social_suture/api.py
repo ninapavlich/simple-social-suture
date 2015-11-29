@@ -319,9 +319,10 @@ def _format_instagram_message(instagram, full=True):
         caption = ''
     parsed = parser.parse(caption)
 
+    message_url = instagram['link']
     instagram_url = (instagram['images']['standard_resolution']['url']).replace("http://", 'https://')
-    text = "<figure><img src='%s' alt='%s'>\
-        <figcaption>%s</figcaption></figure>"%(instagram_url, \
+    text = "<figure><a href='%s'><img src='%s' alt='%s'></a>\
+        <figcaption>%s</figcaption></figure>"%(message_url, instagram_url, \
         caption, _process_message_html(parsed.html))
     
     message = {
@@ -332,7 +333,7 @@ def _format_instagram_message(instagram, full=True):
         'user_screen_name':instagram['user']['username'],
         'user_avatar_url':instagram['user']['profile_picture'],
         'user_profile_url':'https://instagram.com/%s'%instagram['user']['username'],
-        'message_url':instagram['link'],
+        'message_url':message_url,
         'message_html':text,
         'hashes':[hashtag.lower() for hashtag in instagram['tags']]
     }
@@ -352,10 +353,11 @@ def _format_twitter_message(tweet, full=True):
 
     parser = ttp.Parser()
     parsed = parser.parse(tweet['text'])
+    message_url = 'https://twitter.com/%s/status/%s'%(tweet['user']['screen_name'], tweet['id'])
     
     if tweet['entities'].has_key('media'):
-        text = "<figure><img src='%s:large' alt='%s'>\
-            <figcaption>%s</figcaption></figure>"%(tweet['entities']['media'][0]['media_url_https'], \
+        text = "<figure><a href='%s'><img src='%s:large' alt='%s'></a>\
+            <figcaption>%s</figcaption></figure>"%(message_url, tweet['entities']['media'][0]['media_url_https'], \
             _cleanhtml(parsed.html), _process_message_html(parsed.html))
     else:
         text = _process_message_html(parsed.html)
@@ -368,7 +370,7 @@ def _format_twitter_message(tweet, full=True):
         'user_screen_name':tweet['user']['screen_name'],
         'user_avatar_url':tweet['user']['profile_image_url_https'],
         'user_profile_url':'https://twitter.com/%s'%tweet['user']['screen_name'],
-        'message_url':'https://twitter.com/%s/status/%s'%(tweet['user']['screen_name'], tweet['id']),
+        'message_url':message_url,
         'message_html':text,
         'hashes':[hashtag['text'].lower() for hashtag in tweet['entities']['hashtags']]
     }
