@@ -34,19 +34,40 @@ def get_message_by_id(settings, message_id):
 
     return message
 
-def get_messages(settings, hashtag_search, user_search, start_date, end_date):
+def get_messages_by_hashtag(settings, hashtag_search, start_date=None, end_date=None):
+    if not start_date:
+        start_date = datetime.datetime.now()
+
+    if not end_date:
+        end_date = _add_years(start_date, -1)
+
+    output = []
     
+    instagram_messages = _search_instagram_joined(settings, [hashtag_search], end_date)
+    
+    twitter_messages = _search_twitter_joined(settings, [hashtag_search], end_date)
+    
+    output = instagram_messages + twitter_messages
+    output = sorted(output, key=lambda p: p['message_date'], reverse=True)
+
+    return output
+
+def get_messages_by_user(settings, user_search, start_date=None, end_date=None):
+    if not start_date:
+        start_date = datetime.datetime.now()
+
+    if not end_date:
+        end_date = _add_years(start_date, -1)
+
     output = []
 
     if user_search:
-        pass
-    else:
+        print "TODO: search by user..."
+        # instagram_messages = _search_instagram_joined(settings, [hashtag_search], end_date)
         
-        instagram_messages = _search_instagram_joined(settings, [hashtag_search], end_date)
+        # twitter_messages = _search_twitter_joined(settings, [hashtag_search], end_date)
         
-        twitter_messages = _search_twitter_joined(settings, [hashtag_search], end_date)
-        
-        output = sorted(output, key=lambda p: p['message_date'], reverse=True)
+        # output = sorted(output, key=lambda p: p['message_date'], reverse=True)
 
     return output
 
@@ -74,7 +95,7 @@ def _search_twitter_joined(settings, searches, end_date, max_id=None, current_co
 
     total_length = current_count + len(statuses)
 
-    print 'found %s so far. the last message in this list was at %s shooting for %s next_max_id: %s'%(total_length, last_message_end_date, end_date, next_max_id)
+    # print 'found %s so far. the last message in this list was at %s shooting for %s next_max_id: %s'%(total_length, last_message_end_date, end_date, next_max_id)
 
     if(total_length < settings.MAX_QUERY_COUNT and last_message_end_date > end_date and next_max_id != None):
         statuses += _search_twitter_joined(settings, searches, end_date, next_max_id, total_length)
@@ -85,6 +106,7 @@ def _search_twitter_joined(settings, searches, end_date, max_id=None, current_co
 def _search_twitter_parsed(settings, searches, max_id=None):
     #Handles parsing raw data into unified format
 
+    search = searches[0]
     search_results = _search_twitter(settings, search, settings.MAX_TWITTER_COUNT, max_id)
         
     
@@ -131,7 +153,7 @@ def _search_instagram_joined(settings, searches, end_date, max_id=None, current_
 
     total_length = current_count + len(statuses)
 
-    print 'found %s so far. the last message in this list was at %s shooting for %s next_max_id: %s'%(total_length, last_message_end_date, end_date, next_max_id)
+    # print 'found %s so far. the last message in this list was at %s shooting for %s next_max_id: %s'%(total_length, last_message_end_date, end_date, next_max_id)
 
     if(total_length < settings.MAX_QUERY_COUNT and last_message_end_date > end_date and next_max_id != None):
         statuses += _search_instagram_joined(settings, searches, end_date, next_max_id, total_length)
@@ -143,7 +165,7 @@ def _search_instagram_parsed(settings, searches, max_id):
 
     
     
-    
+    search = searches[0]
     search_results = _search_instagram(settings, search, max_id)
 
     if not search_results:
@@ -159,7 +181,10 @@ def _search_instagram_parsed(settings, searches, max_id):
                     output.append(message)
 
     else:
-        output = search_results['data']
+        if 'data' in search_results:
+            output = search_results['data']
+        else:
+            output = []
 
     statuses = []
     for message in output:
@@ -170,7 +195,7 @@ def _search_instagram_parsed(settings, searches, max_id):
     except:
         next_max_id = None
 
-    last_status = output[len(output)-1]
+    last_status = statuses[len(statuses)-1]
     last_message_date = last_status['message_date']
 
     return (statuses, next_max_id, last_message_date)
@@ -179,10 +204,10 @@ def _search_instagram_parsed(settings, searches, max_id):
 def _search_instagram(settings, search, max_count, offset=None):
     try:
         search_term = search.replace("#","")
-        url = "https://api.instagram.com/v1/tags/%s/media/recent?client_id=%s&COUNT=%s"%(
-            search_term, settings.INSTAGRAM_CLIENT_ID, max_count
+        url = "https://api.instagram.com/v1/tags/%s/media/recent?client_id=%s"%(
+            search_term, settings.INSTAGRAM_CLIENT_ID
         )
-        
+        #TODO: Max count or max id...
         try:
             response = urllib.urlopen(url)
             data = json.loads(response.read())
@@ -190,7 +215,7 @@ def _search_instagram(settings, search, max_count, offset=None):
         except:
             return None
     except:
-        return Non
+        return None
 
 
 
@@ -335,3 +360,16 @@ def _timesince_detailed(dt):
     #     return '%s months ago'%(int(diff.total_seconds()/(60*60*24*30)))
     # else:
     #     return '%s years ago'%(int(diff.total_seconds()/(60*60*365)))
+
+
+def _add_years(d, years):
+    """Return a date that's `years` years after the date (or datetime)
+    object `d`. Return the same calendar date (month and day) in the
+    destination year, if it exists, otherwise use the following day
+    (thus changing February 29 to March 1).
+
+    """
+    try:
+        return d.replace(year = d.year + years)
+    except ValueError:
+        return d + (datetime.date(d.year + years, 1, 1) - datetime.date(d.year, 1, 1))    
