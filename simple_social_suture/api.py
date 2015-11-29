@@ -34,14 +34,11 @@ def get_message_by_id(settings, message_id):
 
     return message
 
-def get_messages_by_hashtag(settings, hashtag_search, start_date=None, end_date=None):
-    if not start_date:
-        start_date = datetime.datetime.now()
-
-    if not end_date:
-        end_date = _add_years(start_date, -1)
-
+def get_messages_by_hashtag(settings, hashtag_search):
+    
     output = []
+
+    end_date = _add_years(datetime.datetime.now(), -1)
     
     instagram_messages = _search_instagram_joined(settings, [hashtag_search], end_date)
     
@@ -52,22 +49,18 @@ def get_messages_by_hashtag(settings, hashtag_search, start_date=None, end_date=
 
     return output
 
-def get_messages_by_user(settings, user_search, start_date=None, end_date=None):
-    if not start_date:
-        start_date = datetime.datetime.now()
-
-    if not end_date:
-        end_date = _add_years(start_date, -1)
-
+def get_messages_by_user(settings, twitter_user_name, instagram_user_name):
+    
     output = []
 
-    if user_search:
-        print "TODO: search by user..."
-        # instagram_messages = _search_instagram_joined(settings, [hashtag_search], end_date)
-        
-        # twitter_messages = _search_twitter_joined(settings, [hashtag_search], end_date)
-        
-        # output = sorted(output, key=lambda p: p['message_date'], reverse=True)
+    end_date = _add_years(datetime.datetime.now(), -1)
+
+    instagram_messages = _get_instagram_posts_for_username(settings, instagram_user_name, end_date)
+    twitter_messages = []#TODO
+    # twitter_messages = _search_twitter_joined(settings, [hashtag_search], end_date)
+    
+    output = instagram_messages + twitter_messages
+    output = sorted(output, key=lambda p: p['message_date'], reverse=True)
 
     return output
 
@@ -163,8 +156,7 @@ def _search_instagram_joined(settings, searches, end_date, max_id=None, current_
 
 def _search_instagram_parsed(settings, searches, max_id):
 
-    
-    
+
     search = searches[0]
     search_results = _search_instagram(settings, search, max_id)
 
@@ -218,6 +210,84 @@ def _search_instagram(settings, search, max_count, offset=None):
         return None
 
 
+def _get_instagram_posts_for_username(settings, username, end_date):
+
+    username = username.replace("@","")
+    search_url = "https://api.instagram.com/v1/users/search?q=%s&client_id=%s"%(
+        username, settings.INSTAGRAM_CLIENT_ID
+    )
+    print search_url
+    try:
+        response = urllib.urlopen(search_url)
+        search_data = json.loads(response.read())
+        user_id = search_data['data'][0]['id']
+        return _get_instagram_posts_for_userid_joined(settings, user_id, end_date)
+        
+    except:
+        return []
+    
+
+
+def _get_instagram_posts_for_userid_joined(settings, user_id, end_date, max_id=None, current_count=0):
+    #Join multiple searches together to get desired max count
+    
+    statuses, next_max_id, last_message_end_date = _get_instagram_posts_for_userid_parsed(settings, user_id, max_id)
+
+    total_length = current_count + len(statuses)
+
+    print 'found %s so far. the last message in this list was at %s shooting for %s next_max_id: %s'%(total_length, last_message_end_date, end_date, next_max_id)
+
+    if(total_length < settings.MAX_QUERY_COUNT and last_message_end_date > end_date and next_max_id != None):
+        statuses += _get_instagram_posts_for_userid_joined(settings, user_id, end_date, next_max_id, total_length)
+
+    return statuses
+
+
+def _get_instagram_posts_for_userid_parsed(settings, user_id, max_id):
+
+
+    results = _get_instagram_posts_for_userid(settings, user_id, max_id)
+    print 'results? %s'%(results)
+
+    if not results:
+        return ([], None, None)
+
+    if 'data' in results:
+        output = results['data']
+    else:
+        output = []
+
+    print 'output? %s'%(len(output))
+    statuses = []
+    for message in output:
+        statuses.append(_format_instagram_message(message, True))
+
+    print 'statuses? %s'%(len(statuses))
+
+    try:
+        next_max_id = search_results['pagination']['next_max_tag_id']
+    except:
+        next_max_id = None
+
+    last_status = statuses[len(statuses)-1]
+    last_message_date = last_status['message_date']
+
+    return (statuses, next_max_id, last_message_date)
+
+
+def _get_instagram_posts_for_userid(settings, user_id, max_id = None):
+    
+    url = "https://api.instagram.com/v1/users/%s/media/recent?client_id=%s"%(
+        user_id, settings.INSTAGRAM_CLIENT_ID
+    )
+    if max_id:
+        url += '&max_id=%s'%(max_id)
+    try:
+        response = urllib.urlopen(url)
+        data = json.loads(response.read())
+        return data
+    except:
+        return None
 
 
 
@@ -297,18 +367,17 @@ def _format_twitter_message(tweet, full=True):
    
 
 def _process_message_html(parsed_html):
-    parsed_html = parsed_html.replace('https://twitter.com/search', '')
-    parsed_html = parsed_html.replace('%23', '')
+    # parsed_html = parsed_html.replace('https://twitter.com/search', '')
+    # parsed_html = parsed_html.replace('%23', '')
     return parsed_html
 
 
 
 
 def _cleanhtml(raw_html):
-
-  cleanr =re.compile('<.*?>')
-  cleantext = re.sub(cleanr,'', raw_html)
-  return cleantext
+    cleanr =re.compile('<.*?>')
+    cleantext = re.sub(cleanr,'', raw_html)
+    return cleantext
 
 
 TIMEZONE_OFFSET = 0
