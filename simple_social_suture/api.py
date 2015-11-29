@@ -55,9 +55,8 @@ def get_messages_by_user(settings, twitter_user_name, instagram_user_name):
 
     end_date = _add_years(datetime.datetime.now(), -1)
 
-    instagram_messages = _get_instagram_posts_for_username(settings, instagram_user_name, end_date)
-    twitter_messages = []#TODO
-    # twitter_messages = _search_twitter_joined(settings, [hashtag_search], end_date)
+    instagram_messages = [] if not instagram_user_name else _get_instagram_posts_for_username(settings, instagram_user_name, end_date)
+    twitter_messages = [] if not twitter_user_name else _get_twitter_posts_for_username(settings, twitter_user_name)
     
     output = instagram_messages + twitter_messages
     output = sorted(output, key=lambda p: p['message_date'], reverse=True)
@@ -138,6 +137,20 @@ def _search_twitter(settings, search, max_count, max_id=None):
     except:
         return None
 
+def _get_twitter_posts_for_username(settings, username):
+
+    username = username.replace("@","")        
+
+    twitter = _get_twitter_api(settings)
+    user_timeline = twitter.get_user_timeline(screen_name=username)
+    
+    print user_timeline
+    statuses = []
+    for message in user_timeline:
+        statuses.append(_format_twitter_message(message, True))
+
+    return statuses
+
 
 def _search_instagram_joined(settings, searches, end_date, max_id=None, current_count=0):
     #Join multiple searches together to get desired max count
@@ -216,7 +229,7 @@ def _get_instagram_posts_for_username(settings, username, end_date):
     search_url = "https://api.instagram.com/v1/users/search?q=%s&client_id=%s"%(
         username, settings.INSTAGRAM_CLIENT_ID
     )
-    print search_url
+    
     try:
         response = urllib.urlopen(search_url)
         search_data = json.loads(response.read())
@@ -235,7 +248,7 @@ def _get_instagram_posts_for_userid_joined(settings, user_id, end_date, max_id=N
 
     total_length = current_count + len(statuses)
 
-    print 'found %s so far. the last message in this list was at %s shooting for %s next_max_id: %s'%(total_length, last_message_end_date, end_date, next_max_id)
+    # print 'found %s so far. the last message in this list was at %s shooting for %s next_max_id: %s'%(total_length, last_message_end_date, end_date, next_max_id)
 
     if(total_length < settings.MAX_QUERY_COUNT and last_message_end_date > end_date and next_max_id != None):
         statuses += _get_instagram_posts_for_userid_joined(settings, user_id, end_date, next_max_id, total_length)
@@ -247,7 +260,6 @@ def _get_instagram_posts_for_userid_parsed(settings, user_id, max_id):
 
 
     results = _get_instagram_posts_for_userid(settings, user_id, max_id)
-    print 'results? %s'%(results)
 
     if not results:
         return ([], None, None)
@@ -257,12 +269,9 @@ def _get_instagram_posts_for_userid_parsed(settings, user_id, max_id):
     else:
         output = []
 
-    print 'output? %s'%(len(output))
     statuses = []
     for message in output:
         statuses.append(_format_instagram_message(message, True))
-
-    print 'statuses? %s'%(len(statuses))
 
     try:
         next_max_id = search_results['pagination']['next_max_tag_id']
