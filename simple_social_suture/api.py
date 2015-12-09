@@ -3,8 +3,11 @@ import collections
 import datetime
 from random import shuffle
 from twython import Twython
+from instagram.client import InstagramAPI
 from ttp import ttp
 import urllib, json
+
+
 
 
 
@@ -27,10 +30,13 @@ def get_message_by_id(settings, message_id):
 
     elif is_instagram:
         instagram_id = message_id[10:]
-        url = 'https://api.instagram.com/v1/media/%s?client_id=%s'%(instagram_id, settings.INSTAGRAM_CLIENT_ID)
-        response = urllib.urlopen(url)
-        data = json.loads(response.read())
-        message = _format_instagram_message(data['data'])
+
+        instagram = _get_instagram_api()
+        message_object = instagram.media(instagram_id)
+        # url = 'https://api.instagram.com/v1/media/%s?client_id=%s'%(instagram_id, settings.INSTAGRAM_CLIENT_ID)
+        # response = urllib.urlopen(url)
+        # data = json.loads(response.read())
+        message = _format_instagram_message(message_object)
 
     return message
 
@@ -72,6 +78,10 @@ def _get_twitter_api(settings):
         app_secret=settings.TWITTER_APP_KEY_SECRET, 
         oauth_token=settings.TWITTER_ACCESS_TOKEN, 
         oauth_token_secret=settings.TWITTER_ACCESS_TOKEN_SECRET)
+
+
+def _get_instagram_api(settings):
+    return InstagramAPI(client_id=settings.INSTAGRAM_CLIENT_ID, client_secret=settings.INSTAGRAM_SECRET_CLIENT_ID)
 
 
 
@@ -208,42 +218,62 @@ def _search_instagram_parsed(settings, searches, max_id):
 
 def _search_instagram(settings, search, max_count, offset=None):
     try:
-        search_term = search.replace("#","")
-        url = "https://api.instagram.com/v1/tags/%s/media/recent?client_id=%s"%(
-            search_term, settings.INSTAGRAM_CLIENT_ID
-        )
-        #TODO: Max count or max id...
-        try:
-            response = urllib.urlopen(url)
-            data = json.loads(response.read())
-            return data
-        except:
-            return None
+        instagram = _get_instagram_api()
+
+        messages = instagram.tag_recent_media(max_count=max_count,tag_name=search_term)
+        return messages
+
+
+        # search_term = search.replace("#","")
+        # url = "https://api.instagram.com/v1/tags/%s/media/recent?client_id=%s"%(
+        #     search_term, settings.INSTAGRAM_CLIENT_ID
+        # )
+        # #TODO: Max count or max id...
+        # try:
+        #     response = urllib.urlopen(url)
+        #     data = json.loads(response.read())
+        #     return data
+        # except:
+        #     return None
     except:
         return None
 
 
 def _get_instagram_posts_for_username(settings, username, end_date):
 
-    username = username.replace("@","")
-    search_url = "https://api.instagram.com/v1/users/search?q=%s&client_id=%s"%(
-        username, settings.INSTAGRAM_CLIENT_ID
-    )
     
-    try:
-        response = urllib.urlopen(search_url)
-        search_data = json.loads(response.read())
-        user_id = search_data['data'][0]['id']
-        return _get_instagram_posts_for_userid_joined(settings, user_id, end_date)
-        
-    except:
+    username = username.replace("@","") 
+    # search_url = "https://api.instagram.com/v1/users/search?q=%s&client_id=%s"%(
+    #     username, settings.INSTAGRAM_CLIENT_ID
+    # )
+    # print search_url
+    instagram = _get_instagram_api(settings)
+    
+    instagram_users = instagram.user_search(username)
+    if len(instagram_users)>0:
+        user = instagram_users[0]
+        return _get_instagram_posts_for_userid_joined(settings, user.id, end_date)
+    else:
         return []
+    
+
+    # try:
+    #     posts = user_recent_media(user_id, count, max_id)
+    #     response = urllib.urlopen(search_url)
+    #     search_data = json.loads(response.read())
+    #     user_id = search_data['data'][0]['id']
+    #     return _get_instagram_posts_for_userid_joined(settings, user_id, end_date)
+        
+    # except:
+    #     return []
     
 
 
 def _get_instagram_posts_for_userid_joined(settings, user_id, end_date, max_id=None, current_count=0):
     #Join multiple searches together to get desired max count
     
+    
+
     statuses, next_max_id, last_message_end_date = _get_instagram_posts_for_userid_parsed(settings, user_id, max_id)
 
     total_length = current_count + len(statuses)
@@ -259,24 +289,13 @@ def _get_instagram_posts_for_userid_joined(settings, user_id, end_date, max_id=N
 def _get_instagram_posts_for_userid_parsed(settings, user_id, max_id):
 
 
-    results = _get_instagram_posts_for_userid(settings, user_id, max_id)
-
-    if not results:
-        return ([], None, None)
-
-    if 'data' in results:
-        output = results['data']
-    else:
-        output = []
+    posts, next_max_id = _get_instagram_posts_for_userid(settings, user_id, max_id)
 
     statuses = []
-    for message in output:
-        statuses.append(_format_instagram_message(message, True))
+    for post in posts:
+        statuses.append(_format_instagram_message(post, True))
 
-    try:
-        next_max_id = search_results['pagination']['next_max_tag_id']
-    except:
-        next_max_id = None
+
 
     last_status = statuses[len(statuses)-1]
     last_message_date = last_status['message_date']
@@ -286,25 +305,22 @@ def _get_instagram_posts_for_userid_parsed(settings, user_id, max_id):
 
 def _get_instagram_posts_for_userid(settings, user_id, max_id = None):
     
-    url = "https://api.instagram.com/v1/users/%s/media/recent?client_id=%s"%(
-        user_id, settings.INSTAGRAM_CLIENT_ID
-    )
-    if max_id:
-        url += '&max_id=%s'%(max_id)
-    try:
-        response = urllib.urlopen(url)
-        data = json.loads(response.read())
-        return data
-    except:
-        return None
+    # url = "https://api.instagram.com/v1/users/%s/media/recent?client_id=%s"%(
+    #     user_id, settings.INSTAGRAM_CLIENT_ID
+    # )
+    
+    instagram = _get_instagram_api(settings)
+    posts, next_max_id = instagram.user_recent_media(user_id=user_id, max_id=max_id)
+    
+    return (posts, next_max_id)
 
 
 
 
 def _format_instagram_message(instagram, full=True):
     # print instagram
-    message_id = 'instagram_%s'%(instagram['id'])
-    message_date = datetime.datetime.fromtimestamp(int(instagram['created_time']))
+    message_id = 'instagram_%s'%(instagram.id)
+    message_date = instagram.created_time#datetime.datetime.fromtimestamp(int(instagram.created_time))
 
     if not full:
         return {
@@ -312,15 +328,35 @@ def _format_instagram_message(instagram, full=True):
             'message_date':message_date
         }
 
+    """
+    {'caption': Comment: inertiaunlimited said "What's better than going down a water slide in the Bahamas? Capturing the fun in high-speed, of course. #atlantisresort #xmo #sportstech",
+ 'comment_count': 1,
+ 'comments': [Comment: atlantisresort said "Amazing!"],
+ 'created_time': datetime.datetime(2015, 12, 7, 13, 33, 4),
+ 'filter': 'Normal',
+ 'id': '1134770313898096730_2142750893',
+ 'images': {'low_resolution': Image: https://scontent.cdninstagram.com/hphotos-xpf1/t51.2885-15/s320x320/e35/12277430_1682421975377994_535438069_n.jpg,
+            'standard_resolution': Image: https://scontent.cdninstagram.com/hphotos-xpf1/t51.2885-15/s640x640/sh0.08/e35/12277430_1682421975377994_535438069_n.jpg,
+            'thumbnail': Image: https://scontent.cdninstagram.com/hphotos-xpf1/t51.2885-15/s150x150/e35/12277430_1682421975377994_535438069_n.jpg},
+ 'like_count': 1,
+ 'likes': [User: itsofficialjojo],
+ 'link': 'https://www.instagram.com/p/-_g5aVjfha/',
+ 'location': Location: 145849377 (Point: (25.084288198, -77.321467938)),
+ 'tags': [Tag: xmo, Tag: sportstech, Tag: atlantisresort],
+ 'type': 'image',
+ 'user': User: inertiaunlimited,
+ 'users_in_photo': []}
+    """
+
     parser = ttp.Parser()    
     try:
-        caption = _cleanhtml(instagram['caption']['text'])
+        caption = _cleanhtml(instagram.caption.text)
     except:
         caption = ''
     parsed = parser.parse(caption)
 
-    message_url = instagram['link']
-    instagram_url = (instagram['images']['standard_resolution']['url']).replace("http://", 'https://')
+    message_url = instagram.link
+    instagram_url = (instagram.get_standard_resolution_url()).replace("http://", 'https://')
     text = "<figure><a href='%s'><img src='%s' alt='%s'></a>\
         <figcaption>%s</figcaption></figure>"%(message_url, instagram_url, \
         caption, _process_message_html(parsed.html))
@@ -329,13 +365,13 @@ def _format_instagram_message(instagram, full=True):
         'message_id':message_id,
         'message_date':message_date,
         'message_timesince':_timesince(message_date),
-        'user_name':instagram['user']['full_name'],
-        'user_screen_name':instagram['user']['username'],
-        'user_avatar_url':instagram['user']['profile_picture'],
-        'user_profile_url':'https://instagram.com/%s'%instagram['user']['username'],
+        'user_name':instagram.user.full_name,
+        'user_screen_name':instagram.user.username,
+        'user_avatar_url':instagram.user.profile_picture,
+        'user_profile_url':'https://instagram.com/%s'%instagram.user.username,
         'message_url':message_url,
         'message_html':text,
-        'hashes':[hashtag.lower() for hashtag in instagram['tags']]
+        'hashes':[hashtag.name.lower() for hashtag in instagram.tags]
     }
     return message
 

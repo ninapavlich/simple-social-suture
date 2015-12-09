@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name = 'simple-social-suture',
-    version = '0.2',
+    version = '0.3',
     author = 'Nina Pavlich',
     author_email='nina@ninalp.com',
     url = 'https://github.com/ninapavlich/simple-social-suture',
