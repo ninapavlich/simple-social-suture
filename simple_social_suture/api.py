@@ -69,6 +69,20 @@ def get_messages_by_user(settings, twitter_user_name, instagram_user_name):
 
     return output
 
+def get_my_messages(settings, twitter_user_name, instagram_user_name):
+    
+    output = []
+
+    end_date = _add_years(datetime.datetime.now(), -1)
+
+    instagram_messages = [] if not instagram_user_name else _get_my_instagram_feed(settings, end_date)
+    twitter_messages = [] if not twitter_user_name else _get_twitter_posts_for_username(settings, twitter_user_name)
+    
+    output = instagram_messages + twitter_messages
+    output = sorted(output, key=lambda p: p['message_date'], reverse=True)
+
+    return output    
+
 #==========================================
 # PRIVATE =================================
 #==========================================
@@ -255,24 +269,15 @@ def _get_instagram_posts_for_username(settings, username, end_date):
         return _get_instagram_posts_for_userid_joined(settings, user.id, end_date)
     else:
         return []
-    
 
-    # try:
-    #     posts = user_recent_media(user_id, count, max_id)
-    #     response = urllib.urlopen(search_url)
-    #     search_data = json.loads(response.read())
-    #     user_id = search_data['data'][0]['id']
-    #     return _get_instagram_posts_for_userid_joined(settings, user_id, end_date)
-        
-    # except:
-    #     return []
+def _get_my_instagram_feed(settings, end_date):
+
+    return _get_my_instagram_posts_joined(settings, end_date)
     
 
 
 def _get_instagram_posts_for_userid_joined(settings, user_id, end_date, max_id=None, current_count=0):
     #Join multiple searches together to get desired max count
-    
-    
 
     statuses, next_max_id, last_message_end_date = _get_instagram_posts_for_userid_parsed(settings, user_id, max_id)
 
@@ -288,14 +293,11 @@ def _get_instagram_posts_for_userid_joined(settings, user_id, end_date, max_id=N
 
 def _get_instagram_posts_for_userid_parsed(settings, user_id, max_id):
 
-
     posts, next_max_id = _get_instagram_posts_for_userid(settings, user_id, max_id)
 
     statuses = []
     for post in posts:
         statuses.append(_format_instagram_message(post, True))
-
-
 
     last_status = statuses[len(statuses)-1]
     last_message_date = last_status['message_date']
@@ -305,10 +307,6 @@ def _get_instagram_posts_for_userid_parsed(settings, user_id, max_id):
 
 def _get_instagram_posts_for_userid(settings, user_id, max_id = None):
     
-    # url = "https://api.instagram.com/v1/users/%s/media/recent?client_id=%s"%(
-    #     user_id, settings.INSTAGRAM_CLIENT_ID
-    # )
-    
     instagram = _get_instagram_api(settings)
     posts, next_max_id = instagram.user_recent_media(user_id=user_id, max_id=max_id)
     
@@ -316,6 +314,96 @@ def _get_instagram_posts_for_userid(settings, user_id, max_id = None):
 
 
 
+####
+
+def _get_my_instagram_posts_joined(settings, end_date, max_id=None, current_count=0):
+    #Join multiple searches together to get desired max count
+
+    statuses, next_max_id, last_message_end_date = _get_my_instagram_posts_parsed(settings, max_id)
+
+    total_length = current_count + len(statuses)
+
+    print 'found %s so far. the last message in this list was at %s shooting for %s next_max_id: %s'%(total_length, last_message_end_date, end_date, next_max_id)
+
+    if(total_length < settings.MAX_QUERY_COUNT and last_message_end_date > end_date and next_max_id != None):
+        statuses += _get_my_instagram_posts_joined(settings, end_date, next_max_id, total_length)
+
+    return statuses
+
+
+def _get_my_instagram_posts_parsed(settings, max_id):
+
+    posts, next_max_id = _get_my_instagram_posts(settings, max_id)
+    
+    statuses = []
+    for post in posts:
+        statuses.append(_format_instagram_message_dict(post, True))
+
+    last_status = statuses[len(statuses)-1]
+    last_message_date = last_status['message_date']
+
+    return (statuses, next_max_id, last_message_date)
+
+
+def _get_my_instagram_posts(settings,max_id = None):
+    
+    # instagram = _get_instagram_api(settings)
+    # posts, next_max_id = instagram.user_media_feed(max_id=max_id)
+    
+    url = 'https://api.instagram.com/v1/users/self/media/recent?access_token=%s&max_id=%s'%(settings.INSTAGRAM_ACCESS_TOKEN, max_id)
+    response = urllib.urlopen(url)
+    data = json.loads(response.read())
+    
+    posts = data['data']
+    try:
+        next_max_id = data['pagination']['next_max_tag_id']
+    except:
+        next_max_id = None
+
+    return (posts, next_max_id)    
+
+
+
+def _format_instagram_message_dict(instagram, full=True):
+    # print instagram
+    message_id = 'instagram_%s'%(instagram['id'])
+    message_date = datetime.datetime.fromtimestamp(int(instagram['created_time']))
+
+    if not full:
+        return {
+            'message_id':message_id,
+            'message_date':message_date
+        }
+
+    print instagram
+
+    parser = ttp.Parser()    
+    try:
+        caption = _cleanhtml(instagram['caption']['text'])
+    except:
+        caption = ''
+    parsed = parser.parse(caption)
+
+    message_url = instagram['link']
+    instagram_url = (instagram['images']['standard_resolution']['url']).replace("http://", 'https://')
+    text = "<figure><a href='%s'><img src='%s' alt='%s'></a>\
+        <figcaption>%s</figcaption></figure>"%(message_url, instagram_url, \
+        caption, _process_message_html(parsed.html))
+
+
+    message = {
+        'message_id':message_id,
+        'message_date':message_date,
+        'message_timesince':_timesince(message_date),
+        'user_name':instagram['user']['full_name'],
+        'user_screen_name':instagram['user']['username'],
+        'user_avatar_url':instagram['user']['profile_picture'],
+        'user_profile_url':'https://instagram.com/%s'%instagram['user']['username'],
+        'message_url':message_url,
+        'message_html':text,
+        'hashes':[hashtag.lower() for hashtag in instagram['tags']]
+    }
+    return message
 
 def _format_instagram_message(instagram, full=True):
     # print instagram
