@@ -1,14 +1,15 @@
+from ttp import ttp
+import urllib, json
+
 import re
 import collections
 import datetime
 from random import shuffle
+
+#API Helper libraries
 from twython import Twython
 from instagram.client import InstagramAPI
-from ttp import ttp
-import urllib, json
-
-
-
+import vimeo
 
 
 
@@ -55,7 +56,7 @@ def get_messages_by_hashtag(settings, hashtag_search):
 
     return output
 
-def get_messages_by_user(settings, twitter_user_name, instagram_user_name):
+def get_messages_by_user(settings, twitter_user_name=None, instagram_user_name=None, vimeo_user_name=None):
     
     output = []
 
@@ -63,13 +64,14 @@ def get_messages_by_user(settings, twitter_user_name, instagram_user_name):
 
     instagram_messages = [] if not instagram_user_name else _get_instagram_posts_for_username(settings, instagram_user_name, end_date)
     twitter_messages = [] if not twitter_user_name else _get_twitter_posts_for_username(settings, twitter_user_name)
+    vimeo_messages = [] if not vimeo_user_name else _get_vimeo_posts_for_username(settings, vimeo_user_name)
     
-    output = instagram_messages + twitter_messages
+    output = instagram_messages + twitter_messages + vimeo_messages
     output = sorted(output, key=lambda p: p['message_date'], reverse=True)
 
     return output
 
-def get_my_messages(settings, twitter_user_name, instagram_user_name):
+def get_my_messages(settings, twitter_user_name=None, instagram_user_name=None, vimeo_user_name=None):
     
     output = []
 
@@ -77,8 +79,9 @@ def get_my_messages(settings, twitter_user_name, instagram_user_name):
 
     instagram_messages = [] if not instagram_user_name else _get_my_instagram_feed(settings, end_date)
     twitter_messages = [] if not twitter_user_name else _get_twitter_posts_for_username(settings, twitter_user_name)
+    vimeo_messages = [] if not vimeo_user_name else _get_vimeo_posts_for_username(settings, vimeo_user_name)
     
-    output = instagram_messages + twitter_messages
+    output = instagram_messages + twitter_messages + vimeo_messages
     output = sorted(output, key=lambda p: p['message_date'], reverse=True)
 
     return output    
@@ -88,6 +91,7 @@ def get_my_messages(settings, twitter_user_name, instagram_user_name):
 #==========================================
 
 def _get_twitter_api(settings):
+
     return Twython(app_key=settings.TWITTER_APP_KEY, 
         app_secret=settings.TWITTER_APP_KEY_SECRET, 
         oauth_token=settings.TWITTER_ACCESS_TOKEN, 
@@ -174,6 +178,51 @@ def _get_twitter_posts_for_username(settings, username):
         statuses.append(_format_twitter_message(message, True))
 
     return statuses
+
+def _get_vimeo_client(settings):
+    v = vimeo.VimeoClient(
+        key=settings.VIMEO_CLIENT_ID,
+        secret=settings.VIMEO_SECRET_CLIENT_ID)
+
+    token = v.load_client_credentials()
+    
+    authenticated_client = vimeo.VimeoClient(
+        token=token,
+        key=settings.VIMEO_CLIENT_ID,
+        secret=settings.VIMEO_SECRET_CLIENT_ID)
+    
+    return authenticated_client
+
+def _get_vimeo_userid(vimeo_client, username):
+    user_search = vimeo_client.get('/users?query=%s'%(username))
+
+    if user_search.status_code == 200:
+        user_search_data = user_search.json()
+        if user_search_data['total'] > 0:
+            user = user_search_data['data'][0]
+            user_id = str(user['uri']).replace('/users/', '')
+            return (user_id, user)
+
+    return None
+
+
+def _get_vimeo_posts_for_username(settings, username):
+
+
+    vimeo_client = _get_vimeo_client(settings)
+
+    user_id, user_data = _get_vimeo_userid(vimeo_client, username)
+    
+    user_timeline = vimeo_client.get('/users/%s/videos'%(user_id))
+    
+    videos = []
+    if user_timeline.status_code == 200:
+        user_timeline_data = user_timeline.json()
+        if user_timeline_data['total'] > 0:
+            for video_data in user_timeline_data['data']:
+                videos.append(_format_vimeo_video(video_data, user_data, True))
+
+    return videos
 
 
 def _search_instagram_joined(settings, searches, end_date, max_id=None, current_count=0):
@@ -451,6 +500,7 @@ def _format_instagram_message(instagram, full=True):
         caption, _process_message_html(parsed.html))
     
     message = {
+        'id':instagram.id,
         'message_id':message_id,
         'message_date':message_date,
         'message_timesince':_timesince(message_date),
@@ -489,6 +539,7 @@ def _format_twitter_message(tweet, full=True):
         text = _process_message_html(parsed.html)
 
     return {
+        'id':tweet['id'],
         'message_id':message_id,
         'message_date':message_date,
         'message_timesince':_timesince(message_date),
@@ -501,6 +552,34 @@ def _format_twitter_message(tweet, full=True):
         'hashes':[hashtag['text'].lower() for hashtag in tweet['entities']['hashtags']],
         'raw_data':tweet
     }
+
+def _format_vimeo_video(video, user_data, full=True):
+    
+    item_id = str(video['uri']).replace("/videos/", "")
+    message_id = 'vimeo_%s'%( item_id )
+    message_date = datetime.datetime.strptime(video['created_time'].split('+')[0], '%Y-%m-%dT%H:%M:%S')
+
+    if not full:
+        return {
+            'message_id':message_id,
+            'message_date':message_date
+        }
+    
+    
+    return {
+        'message_id':message_id,
+        'id':item_id,
+        'message_date':message_date,
+        'message_timesince':_timesince(message_date),
+        'user_name':user_data['name'],
+        'user_screen_name': str(user_data['link']).replace("https://vimeo.com/", ''),
+        'user_avatar_url':user_data['pictures']['sizes'][-1]['link'],
+        'user_profile_url':user_data['link'],
+        'message_url':video['link'],
+        'message_html':video['embed']['html'],
+        'hashes':[],
+        'raw_data':video
+    }    
 
    
 
