@@ -2,6 +2,9 @@
 
 This library provides a unified JSON structure for Twitter, Instagram and Vimeo
 
+##Installation:
+
+    pip install simple-social-suture
 
 ##Usage:
 	
